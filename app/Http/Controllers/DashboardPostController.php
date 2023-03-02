@@ -1,0 +1,113 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Post;
+use App\Models\Category;
+use App\Models\Tag;
+use Illuminate\Support\Str;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use \Cviebrock\EloquentSluggable\Services\SlugService;
+
+class DashboardPostController extends Controller
+{
+    public function index()
+    {
+        $posts = Post::with('category')->paginate(20);
+
+        return view('dashboard.posts.index', compact('posts'));
+    }
+
+    public function create()
+    {
+        $categories = Category::all();
+
+        return view('dashboard.posts.create', compact('categories'));
+    }
+    
+    public function store(Request $request)
+    {
+        $tags = explode(',', $request->tags);
+
+        if ($request->has('image')) {
+            $filename = time() . '_' . $request->file('image')->getClientOriginalName();
+            $request->file('image')->storeAs('uploads', $filename, 'public');
+        }
+        
+        $post = auth()->user()->posts()->create([
+            'title' => $request->title,
+            'image' => $filename ?? null,
+            'post' => $request->post,
+            'category_id' => $request->category
+        ]);
+
+        foreach ($tags as $tagName) {
+            $tag = Tag::firstOrCreate(['name' => $tagName]);
+            $post->tags()->attach($tag);
+        }
+
+        return redirect('/dashboard/posts')->with('success', 'Berhasil upload post!');
+    }
+
+    public function show(Post $post)
+    {
+        return view('dashboard.posts.detail', [
+            'post' => $post
+        ]);
+    }
+
+    public function edit(Post $post)
+    {
+        $categories = Category::all();
+        $tags = $post->tags->implode('name', ', ');
+
+        return view('dashboard.posts.edit', [
+            'post' => $post,
+            'categories' => Category::all()
+        ]);
+        // return view('dashboard.posts.edit', compact('post', 'categories'));
+    }
+
+    public function update(Request $request, Post $post)
+    {
+        $tags = explode(',', $request->tags);
+
+        if ($request->has('image')) {
+            Storage::delete('public/uploads/' . $post->image);
+            
+            $filename = time() . '_' . $request->file('image')->getClientOriginalName();
+            $request->file('image')->storeAs('uploads', $filename, 'public');
+        }
+
+        $post->update([
+            'title' => $request->title,
+            'image' => $filename ?? $post->image,
+            'post' => $request->post,
+            'category_id' => $request->category
+        ]);
+
+        $newTags = [];
+        foreach ($tags as $tagName) {
+            $tag = Tag::firstOrCreate(['name' => $tagName]);
+            array_push($newTags, $tag->id);
+        }
+        $post->tags()->sync($newTags);
+
+        return redirect('/dashboard/posts')->with('success', 'Berhasil mengubah post');
+
+    }
+
+    public function destroy(Post $post)
+    {
+        if ($post->image) {
+            Storage::delete('public/uploads/' . $post->image);
+        }
+
+        $post->tags()->detach();
+        $post->delete();
+
+        return redirect('/dashboard/posts')->with('success', 'Post has been deleted!');
+
+    }
+}
